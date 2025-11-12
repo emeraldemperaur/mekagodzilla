@@ -1,5 +1,5 @@
 # Flask API Server
-from artificer import ASCI_RESET, ASCI_POWER, ASCI_GREEN, ASCI_MERCURY, ASCI_TEAL
+from artificer.artificer import ASCI_RESET, ASCI_POWER, ASCI_GREEN, ASCI_MERCURY, ASCI_TEAL
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import sys
 import warnings
 
-from artisan import Artisan
+from artisan.artisan import Artisan
 
 app_server = Flask("Mercury")
 app_server.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///iliad.db'  # SQLite database file

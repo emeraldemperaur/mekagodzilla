@@ -1,56 +1,25 @@
-# Trulioo API Interface Interactions
-from __future__ import annotations
-
-import random
-from urllib.parse import urlencode
-
+from typing import Any, Dict, Optional, Tuple, Union, Sequence, TypeVar
 from pydantic import BaseModel
-
-from artificer import ASCI_BLUE, ASCI_RESET, ASCI_ARROW
-from artisan import Artisan
-import asyncio
-import base64
-import hashlib
-import hmac
-import json as pyjson
-import time
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Protocol, Tuple, Union, Sequence, TypeVar
 import httpx
-
-class Soteria:
-    _instance = None
-    """
-    Asynchronous Soteria API Client
-    - Injectable AuthStrategy
-    - Strategies: ApiKey, Bearer Token, OAuth2ClientCredentials, HMAC Authentication
-    - Retries w/ exponential backoff
-    - Optional QPS functionality (client-wide rate limiting)
-    """
-
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            # If no instance exists, create a new one using the parent's __new__
-            cls._instance = super(Soteria, cls).__new__(cls)
-        return cls._instance  # Always return the existing instance
-
-    def __init__(self, heimdall):
-        if not hasattr(self, '_initialized'):
-            self.artisan = Artisan()
-            self.heimdall = heimdall
-            self._initialized = True
-            self.heimdall.info_log(F"Initialized Soteria T-NAPI Interface::{self.artisan.userid}@trulioo.com")
-            print(F"{ASCI_BLUE}{ASCI_ARROW} Soteria Initialized{ASCI_RESET}")
-
-    def api_client_init(self, base_url: str, auth: Optional[AuthStrategy] = None, *,
-                        timeout: float = 15.0, max_retries: int = 3, backoff_factor: float = 0.5,
-                        rate_limit_per_sec: Optional[float] = None, default_headers: Optional[Dict[str, str]] = None,
-                        default_params: Optional[Dict[str, Any]] = None) -> None:
-        pass
+import asyncio
+from soteria.auth_strategy import AuthStrategy
+from soteria.api_error import ApiError
+from soteria.hmac_auth import HMACAuth
+import time
+import random
+import json as pyjson
+from urllib.parse import urlencode
 
 # Api Client
 T = TypeVar('T', bound=BaseModel)
 class ApiClient:
+    """
+      Asynchronous Soteria API Client
+      - Injectable AuthStrategy
+      - Strategies: ApiKey, Bearer Token, OAuth2ClientCredentials, HMAC Authentication
+      - Retries w/ exponential backoff
+      - Optional QPS functionality (client-wide rate limiting)
+      """
     def __init__(self, base_url: str, auth: Optional[AuthStrategy] = None, *,
                  timeout: float = 15.0, max_retries: int = 3, backoff_factor: float = 0.5,
                  rate_limit_per_sec: Optional[float] = None, default_headers: Optional[Dict[str, str]] = None,
@@ -199,126 +168,4 @@ class ApiClient:
 
     async def trace(self, path: str, **kwargs: Any) -> Any:
         return await self.request("TRACE", path, **kwargs)
-
-
-# Errors
-class ApiError(Exception):
-    def __init__(self, message: str, * , status_code:Optional[int]=None, body:Optional[str]=None):
-        super().__init__(message)
-        self.status_code = status_code
-        self.body = body
-
-    def __str__(self) -> str:
-        base = super().__str__()
-        if self.status_code is not None:
-            base += f" (status code={self.status_code})"
-        if self.body:
-                base += f" body={self.body[:400]}"
-        return base
-
-# Authentication
-## Authentication Strategy Protocol
-class AuthStrategy(Protocol):
-    async def attach(self, request_headers: Dict[str, str]) -> None:
-        """
-        Mutates request_headers to add whatever authentication protocol is needed for auth.
-        Called on every request
-        """
-        ...
-
-## Authentication Strategies
-@dataclass
-class ApiKeyAuth(AuthStrategy):
-    key: str
-    header_name: str = "X-API-Key"
-    in_query: bool = False
-
-    async def attach(self, request_headers: Dict[str, str]) -> None:
-        if not self.in_query:
-            request_headers[self.header_name] = self.key
-
-@dataclass
-class BearerTokenAuth(AuthStrategy):
-    token: str
-
-    async def attach(self, request_headers: Dict[str, str]) -> None:
-        request_headers["Authorization"] = f"Bearer {self.token}"
-
-class OAuth2ClientCredentials(AuthStrategy):
-    """
-    Minimalistic OAuth2 client credentials flow with auto-refresh.
-    """
-    def __init__(self, token_url: str, client_id: str, client_secret: str,
-                 scope: Optional[str] = None, audience: Optional[str] = None,
-                 timeout: float = 10.0,) -> None:
-        self.token_url = token_url
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.scope = scope
-        self.audience = audience
-        self.timeout = timeout
-        self._access_token: Optional[str] = None
-        self._expires_at: float = 0.0
-        self._lock = asyncio.Lock()
-
-    async def _fetch_token(self) -> Tuple[str, float]:
-        data = {"grant_type": "client_credentials"}
-        if self.scope:
-            data["scope"] = self.scope
-        if self.audience:
-            data["audience"] = self.audience
-        auth = (self.client_id, self.client_secret)
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(self.token_url, data=data, auth=auth)
-        if response.status_code != httpx.codes.OK:
-            raise ApiError("OAuht2 token fetch failed", status_code=response.status_code, body=response.text)
-        payload = response.json()
-        token = payload["access_token"]
-        expires_in = float(payload.get("expires_in", 3600))
-        if not token:
-            raise ApiError("OAuht2 response missing access_token", status_code=response.status_code, body=response.text)
-        return token, time.time() + max(10.0, 0.9 * expires_in)
-
-    async def _ensure_token(self) -> str:
-        async with self._lock:
-            now = time.time()
-            if not self._access_token or now >= self._expires_at:
-                token, exp = await self._fetch_token()
-                self._access_token = token
-                self._expires_at = exp
-            return self._access_token
-
-    async def attach(self, request_headers: Dict[str, str]) -> None:
-        token = await self._ensure_token()
-        request_headers["Authorization"] = f"Bearer {token}"
-
-@dataclass
-class HMACAuth(AuthStrategy):
-    """
-    Minimalistic HMAC authentication scheme:
-    signature = base64(hmac_sha256(secret, f'{method}\n{path}\n{ts}\n{body_sha256}'))
-    Header: Authorization: HMAC {key_id}: {signature};ts={ts}
-    """
-    key_id: str
-    secret: str
-    header_name: str = "Authorization"
-
-    @staticmethod
-    def _sha256_b64(data: bytes) -> str:
-        return base64.b64encode(hashlib.sha256(data).digest()).decode("ascii")
-
-    @staticmethod
-    def _hmac_b64(secret: str, msg: str) -> str:
-        digest = hmac.new(key=secret.encode(), msg=msg.encode("utf-8"), digestmod=hashlib.sha256).digest()
-        return base64.b64encode(digest).decode("ascii")
-
-    async def attach(self, request_headers: Dict[str, str]) -> None:
-        # Client provides special pseudo-headers before sending:
-        method = request_headers.pop(":_method", "GET")
-        path = request_headers.pop(":_path", "/")
-        body_hash = request_headers.pop(":_body_sha256", "")
-        ts = str(int(time.time()))
-        sig_payload = f"{method}\n{path}\n{ts}\n{body_hash}"
-        sig = self._hmac_b64(self.secret, sig_payload)
-        request_headers[self.header_name] = f"HMAC {self.key_id}:{sig};ts={ts}"
 

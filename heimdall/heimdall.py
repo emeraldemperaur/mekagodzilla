@@ -1,18 +1,22 @@
 # Watchtower Reporting
-from artificer import ASCI_BLUE, ASCI_RESET, ASCI_ARROW, ASCI_TEAL
+from artificer.artificer import ASCI_BLUE, ASCI_RESET, ASCI_ARROW, ASCI_TEAL
 import logging
 from logging_loki import LokiHandler
-from artisan import Artisan
+from artisan.artisan import Artisan
 import os
-from moneta import Moneta
+from moneta.moneta import Moneta
 from requests.exceptions import ConnectionError, Timeout
+from dotenv import load_dotenv
 
+load_dotenv(verbose=True)
 system_info = Artisan()
 log_file_path = os.path.join(Moneta.get_db_directory(), "heimdall.log")
 log_file_handler = logging.FileHandler(log_file_path)
 log_file_handler.setLevel(logging.INFO)
 log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(threadName)s')
 log_file_handler.setFormatter(log_formatter)
+VERSION = os.getenv("VERSION", "MekaGodzilla")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 class Heimdall:
     _instance = None
@@ -23,13 +27,13 @@ class Heimdall:
             cls._instance = super(Heimdall, cls).__new__(cls)
         return cls._instance  # Always return the existing instance
 
-    def __init__(self, version, environment):
+    def __init__(self):
         if not hasattr(self, '_initialized'):
             logging.raiseExceptions = False
             self.logger = logging.getLogger("Heimdall Watchtower")
             self.logger.setLevel(logging.INFO)
-            self.version = version
-            self.environment = environment
+            self.version = VERSION
+            self.environment = ENVIRONMENT
             self.logger.addHandler(log_file_handler)
             self.loki = self.get_loki_handler(ragnarok=True)
             self._initialized = True

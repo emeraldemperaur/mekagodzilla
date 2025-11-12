@@ -1,19 +1,17 @@
 # Base User Interface Interactions
-import threading
-
-from artificer import ASCI_BLUE, ASCI_RESET, ASCI_ARROW
-from artisan import Artisan
-from imhotep import Imhotep
-from heimdall import Heimdall
-from mercurius import Mercurius
-from mercury import Mercury
-from minerva import Minerva
-from moneta import Moneta
-from remus import Remus
-from romulus import Romulus
-from securitas import Securitas
-from soteria import Soteria
-from trulioome import TruliooME
+from artificer.artificer import ASCI_BLUE, ASCI_RESET, ASCI_ARROW
+from artisan.artisan import Artisan
+from imhotep.imhotep import Imhotep
+from heimdall.heimdall import Heimdall
+from mercurius.mercurius import Mercurius
+from mercury.mercury import Mercury
+from minerva.minerva import Minerva
+from moneta.moneta import Moneta
+from remus.remus import Remus
+from romulus.romulus import Romulus
+from securitas.securitas import Securitas
+from soteria.soteria import Soteria
+from trulioome.trulioome import TruliooME
 
 class Prometheus:
     _instance = None
@@ -28,12 +26,12 @@ class Prometheus:
     def __init__(self, version, environment):
         if not hasattr(self, '_initialized'):
             print(F"\n{ASCI_BLUE}{ASCI_ARROW} Prometheus Initialized{ASCI_RESET}")
-            self.heimdall = Heimdall(version=version, environment=environment)
+            self.heimdall = Heimdall()
             Heimdall.init_log()
             self.artisan = Artisan()
             self.heimdall.info_log(F"Prometheus Initialized::{self.artisan.userid}")
             self.imhotep = Imhotep(self.heimdall)
-            self.mercurius = Mercurius(version, environment)
+            self.mercurius = Mercurius()
             self.heimdall.info_log(F"Mercurius API Server Activated::{self.artisan.platform}")
             self.mercurius.init_log()
             self.mercury = Mercury()

@@ -3,7 +3,7 @@ import getpass
 import platform
 import textwrap
 from datetime import datetime
-from artificer import ASCI_LOGO, ASCI_ITALIC, ASCI_BOLD, ASCI_RESET, RAG_CONTEXT, ASCI_GREEN, ASCI_RED, ASCI_BLUE
+from artificer.artificer import ASCI_LOGO, ASCI_ITALIC, ASCI_BOLD, ASCI_RESET, RAG_CONTEXT, ASCI_GREEN, ASCI_RED, ASCI_BLUE
 
 class Artisan:
     _instance = None

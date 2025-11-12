@@ -1,16 +1,11 @@
 # FastAPI (Concurrent) API Server
 from __future__ import annotations
-
 import asyncio
 import multiprocessing
-from typing import cast
-from artificer import ASCI_BLUE, ASCI_ARROW, ASCI_RESET, ASCI_TEAL, ASCI_MERCURY, ASCI_GREEN, ASCI_POWER
-import datetime as dt
+from typing import cast, Set
+from artificer.artificer import ASCI_BLUE, ASCI_ARROW, ASCI_RESET, ASCI_TEAL, ASCI_MERCURY, ASCI_GREEN, ASCI_POWER
 import os
-import time
-from collections import deque
-from typing import Annotated, Optional, Set, AsyncGenerator
-import anyio
+from typing import Annotated, AsyncGenerator
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -18,17 +13,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, EmailStr, ConfigDict
-from sqlalchemy import ForeignKey, String, Text, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import declarative_base, relationship, Mapped, mapped_column, joinedload
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
-from starlette.responses import Response
-
-from artisan import Artisan
-from heimdall import Heimdall
+from sqlalchemy.orm import declarative_base, joinedload
+from mercurius.db_models import User
+from mercurius.db_models import Artifact
+from mercurius.http_models import Token, TokenPayload, TokenRefreshIn, UserCreate, UserOut, ArtifactCreate, ArtifactOut
+from mercurius.rate_limiter_middleware import RateLimiterMiddleware
+from mercurius.tools import verify_password, get_password_hash, create_token_pair
+from artisan.artisan import Artisan
+from heimdall.heimdall import Heimdall
 
 #load environment variables from .env file
 load_dotenv(verbose=True)
@@ -51,8 +46,8 @@ SessionLocal = async_sessionmaker(bind=engine, autoflush=False, autocommit=False
 Base = declarative_base()
 password_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
-heimall_object = None
+VERSION = os.getenv("VERSION", "MekaGodzilla")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 class Mercurius:
     _instance = None
@@ -62,11 +57,11 @@ class Mercurius:
             # If no instance exists, create a new one using the parent's __new__
             cls._instance = super(Mercurius, cls).__new__(cls)
         return cls._instance  # Always return the existing instance
-    def __init__(self, version, environment):
+    def __init__(self):
         if not hasattr(self, '_initialized'):
             self.app_server = FastAPI(title="Mercurius", description="MekaGodzilla RPA Server API")
-            self.version = version
-            self.environment = environment
+            self.version = VERSION
+            self.environment = ENVIRONMENT
             self.config = uvicorn.Config(self.app_server,
                                          host=os.getenv("HOST", "127.0.0.1"),
                                          port=int(os.getenv("PORT", 4134)),
@@ -98,33 +93,10 @@ class Mercurius:
     def recommended_workers(cores: int) -> int:
         return max(1, min(8, cores * 2 + 1))
 
-# Database Models
 
+heimdall = Heimdall()
+mercurius = Mercurius()
 
-class User(Base):
-    __tablename__ = "users"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[EmailStr] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String(4096), nullable=False)
-    role: Mapped[str] = mapped_column(String(50), default="admin", nullable=False)
-    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
-    created_at: Mapped[dt.datetime] = mapped_column(default=dt.datetime.now(dt.timezone.utc), nullable=False)
-    artifacts: Mapped[list["Artifact"]] = relationship("Artifact", back_populates="owner", cascade="all, delete-orphan")
-
-
-class Artifact(Base):
-    __tablename__ = "artifacts"
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    title: Mapped[str] = mapped_column(String(255), unique=False, index=True, nullable=False)
-    type: Mapped[str] = mapped_column(String(50), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[dt.datetime] = mapped_column(default=dt.datetime.now(dt.UTC), nullable=False)
-    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
-    owner: Mapped[User] = relationship("User", back_populates="artifacts")
-
-
-heimdall = Heimdall("MekaGodzilla", F"{os.getenv("ENVIRONMENT", "development")}")
-mercurius = Mercurius("MekaGodzilla", F"{os.getenv("ENVIRONMENT", "development")}")
 
 @mercurius.app_server.on_event("startup")
 async def on_startup():
@@ -141,109 +113,12 @@ mercurius.app_server.add_middleware(
 )
 
 
-# Rate Limiter Middleware
-class RateLimiterMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, limit_per_min: int = 120, window_sec: int = 60):
-        super().__init__(app)
-        self.limit = limit_per_min
-        self.window = float(window_sec)
-        self.buckets:  dict[str, deque[float]] = {}
-
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        client_ip = request.client.host if request.client else "unknown"
-        now = time.monotonic()
-        dq = self.buckets.setdefault(client_ip, deque())
-        while dq and now - dq[0] > self.window:
-            dq.popleft()
-        if len(dq) >= self.limit:
-            return Response("WTF! Too Many HTTP Requests", 429)
-        dq.append(now)
-        return await call_next(request)
-
-
 mercurius.app_server.add_middleware(RateLimiterMiddleware, limit_per_min=RATE_LIMIT_PER_MIN)
-
-# Schemas
-
-
-class Token(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    platform: str = F"{Artisan.get_platform()}"
-
-
-class TokenRefrehIn(BaseModel):
-    refresh_token: str
-
-
-class TokenPayload(BaseModel):
-    sub: str
-    type: str
-    exp: int
-
-
-class UserCreate(BaseModel):
-    email: EmailStr
-    password: str
-    role: Optional[str] = None
-
-
-class UserOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    email: EmailStr
-    role: str
-    is_active: bool
-    created_at: dt.datetime
-
-
-class ArtifactCreate(BaseModel):
-    title: str
-    type: str
-    content: str
-
-
-class ArtifactOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    title: str
-    type: str
-    created_at: dt.datetime
-    owner_id: int
-    owner: UserOut
-    content: Optional[str]
-
-# Helpers
-
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with SessionLocal() as session:
         yield session
 DB = Annotated[AsyncSession, Depends(get_db)]
-
-
-async def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return await anyio.to_thread.run_sync(password_context.verify, plain_password, hashed_password)
-
-
-async def get_password_hash(password: str) -> str:
-    return await anyio.to_thread.run_sync(password_context.hash, password)
-
-
-def _create_token(*, subject: str, token_type: str, expires_delta: dt.timedelta) -> str:
-    now = dt.datetime.now(dt.UTC)
-    expire = now + expires_delta
-    payload = {"sub": subject, "type": token_type, "exp": int(expire.timestamp())}
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
-def create_token_pair(user_id: int) -> Token:
-    access = _create_token(subject=str(user_id), token_type="access",
-                           expires_delta=dt.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    refresh = _create_token(subject=str(user_id), token_type="refresh",
-                            expires_delta=dt.timedelta(minutes=REFRESH_TOKEN_EXPIRE_DAYS))
-    return Token(access_token=access, refresh_token=refresh, expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: DB) -> type[User] | None:
     credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
@@ -303,7 +178,7 @@ async def login_user(form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     return create_token_pair(cast(int, cast(object, user.id)))
 
 @mercurius.app_server.post("/auth/refresh", response_model=Token, status_code=status.HTTP_200_OK)
-async def refresh_tokens(body: TokenRefrehIn, db: DB):
+async def refresh_tokens(body: TokenRefreshIn, db: DB):
     try:
         payload = jwt.decode(body.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
         data = TokenPayload(**payload)
@@ -371,7 +246,7 @@ async def get_my_artifact(artifact_id: int, db: DB, current_user: CurrentUser):
         heimdall.info_log(
             F"Mercurius API Server :: HTTP GET::({current_user.email}) "
             F"User Artifact By ID({artifact_id}) Not Found ")
-        raise HTTPException(status_code=404, detail=F"Artifact not found for user ({artifact.owner})")
+        raise HTTPException(status_code=404, detail=F"Artifact not found for user ({current_user.email})")
     await db.refresh(artifact, attribute_names=["owner"])
     heimdall.info_log(
         F"Mercurius API Server :: HTTP GET::({current_user.email}) Fetched User Artifact By ID ({artifact_id})")
@@ -409,8 +284,6 @@ Depends(require_roles("admin", "root"))]):
     artifact = await db.get(Artifact, artifact_id)
     if not artifact:
         raise HTTPException(status_code=404, detail=F"Artifact not found")
-    if current_user.role != "admin" or "root":
-        raise HTTPException(status_code=401, detail="Access Unauthorized")
     await db.delete(artifact)
     await db.commit()
     heimdall.info_log(F"Mercurius API Server :: HTTP DELETE::({current_user.email}) Deleted Artifact By ID "
@@ -418,9 +291,9 @@ Depends(require_roles("admin", "root"))]):
     return artifact
 
 @mercurius.app_server.delete("/artifacts", status_code=status.HTTP_200_OK)
-async def delete_all_my_artifact(artifact_id: int, db: DB, current_user: CurrentUser):
+async def delete_all_my_artifact(db: DB, current_user: CurrentUser):
     await db.execute(select(Artifact).where(Artifact.owner_id == current_user.id))
-    await db.execute(Artifact.__table__.delete().where(Artifact.id == artifact_id))
+    await db.execute(Artifact.__table__.delete().where(Artifact.owner_id == current_user.id))
     await db.commit()
     heimdall.info_log(F"Mercurius API Server :: HTTP DELETE::({current_user.email}) Deleted All User Artifacts")
     return {"action": "delete", "type": "owner", "user": current_user.email}

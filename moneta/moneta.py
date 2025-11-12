@@ -1,11 +1,11 @@
 # SQLite Data Persistence
 import uuid
-from artificer import ASCI_BLUE, ASCI_RESET, ASCI_ARROW
+from artificer.artificer import ASCI_BLUE, ASCI_RESET, ASCI_ARROW
 from sqlalchemy import create_engine
 import sqlite3
 import csv
 import os
-from artisan import Artisan
+from artisan.artisan import Artisan
 
 systeminfo = Artisan()
 # Get the user's home directory
@@ -35,7 +35,7 @@ class Moneta:
 
     def __init__(self, heimdall):
         if not hasattr(self, '_initialized'):
-            self.datasource = create_engine("sqlite:///iliad.db")
+            self.datasource = create_engine("sqlite:///./moneta.db")
             self.directory_path = rpa_directory_path
             self.cli_directory_path = rpa_cli_subdirectory_path
             self.server_directory_path = rpa_server_subdirectory_path
@@ -60,7 +60,7 @@ class Moneta:
 
     def export_db(self):
         # Connect to the SQLite database
-        conn = sqlite3.connect('illiad.db')
+        conn = sqlite3.connect('moneta.db')
         cursor = conn.cursor()
         # Execute the query to fetch all data
         cursor.execute("SELECT * FROM your_table_name")
@@ -68,14 +68,14 @@ class Moneta:
         # Extract column headers
         headers = [description[0] for description in cursor.description]
         # Write data to CSV file
-        output_file_path = os.path.join(self.db_directory_path, F'illiad_{systeminfo.timestamp}.csv')
+        output_file_path = os.path.join(self.db_directory_path, F'moneta_{systeminfo.timestamp}.csv')
         with open(output_file_path, 'w', newline='') as csvfile:
             csv_writer = csv.writer(csvfile)
             csv_writer.writerow(headers)  # Write headers
             csv_writer.writerows(data)  # Write data rows
         # Close the database connection
         conn.close()
-        print(F"Exported Moneta DB: {self.db_directory_path}/{F'illiad_{systeminfo.timestamp}.csv'}")
+        print(F"Exported Moneta DB: {self.db_directory_path}/{F'moneta_{systeminfo.timestamp}.csv'}")
 
     @staticmethod
     def get_db_directory():

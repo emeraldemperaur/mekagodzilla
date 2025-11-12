@@ -1,10 +1,12 @@
 import threading
+import os
+from artisan.artisan import Artisan
+from mercurius.mercurius import Mercurius
+from prometheus.prometheus import Prometheus
+from dotenv import load_dotenv
 
-from artisan import Artisan
-from mercurius import Mercurius
-from prometheus import Prometheus
-
-version = "MekaGodzilla"
+load_dotenv(verbose=True)
+version = VERSION = os.getenv("VERSION", "MekaGodzilla")
 def launch(mecha):
     system = Artisan()
     if mecha == 'Mekatron':
@@ -18,18 +20,14 @@ def launch(mecha):
         initializer(mecha)
 
 def run_mercurius():
-    Mercurius(version=version, environment="development").start_server()
-
+    Mercurius().start_server()
 
 
 def initializer(mecha):
     prometheus = Prometheus(version=version, environment="development")
-    Mercurius(version=version, environment="development").start_server()
-    prometheus.heimdall.info_log("Initializing Mercurius API Server")
     if mecha == 'Mekatron':
-        pass
+        prometheus.heimdall.info_log("Initializing Minerva CLI")
     elif mecha == 'MekaGodzilla':
-        # Mercury().start_server()
         mercury_thread = threading.Thread(target=run_mercurius(), daemon=False, name="Mercurius API Server")
         mercury_thread.start()
 
