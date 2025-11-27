@@ -1,6 +1,6 @@
 # MekaGodzilla: Robotic Process Automation Server
 
-### Python Packages 
+### Python Package Requirements
 ```
 pip install selenium
 pip install sqlalchemy
