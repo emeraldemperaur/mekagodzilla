@@ -24,7 +24,7 @@ def run_mercurius():
 
 
 def initializer(mecha):
-    prometheus = Prometheus(version=version, environment="development")
+    prometheus = Prometheus()
     if mecha == 'Mekatron':
         prometheus.heimdall.info_log("Initializing Minerva CLI")
     elif mecha == 'MekaGodzilla':

@@ -1,5 +1,7 @@
 # SQLite Data Persistence
 import uuid
+from typing import Optional
+
 from artificer.artificer import ASCI_BLUE, ASCI_RESET, ASCI_ARROW
 from sqlalchemy import create_engine
 import sqlite3
@@ -23,6 +25,8 @@ if systeminfo.platform.__contains__("Windows"):
     db_subdirectory_path = os.path.join(rpa_directory_path, db_subdirectory_name)
 else:
     db_subdirectory_path = os.path.join(rpa_directory_path, F'.{db_subdirectory_name}')
+rpa_server_downloads_path = os.path.join(db_subdirectory_path, 'Downloads')
+
 
 class Moneta:
     _instance = None
@@ -40,12 +44,14 @@ class Moneta:
             self.cli_directory_path = rpa_cli_subdirectory_path
             self.server_directory_path = rpa_server_subdirectory_path
             self.db_directory_path = db_subdirectory_path
+            self.rpa_downloads_path = rpa_server_downloads_path
             # Create the directories
             try:
                 os.makedirs(rpa_directory_path, exist_ok=True)
                 os.makedirs(rpa_cli_subdirectory_path, exist_ok=True)
                 os.makedirs(rpa_server_subdirectory_path, exist_ok=True)
                 os.makedirs(db_subdirectory_path, exist_ok=True)
+                os.makedirs(rpa_server_downloads_path, exist_ok=True)
                 if systeminfo.platform.__contains__("Windows"):
                     os.system(f'attrib +h "{db_subdirectory_path}"')
             except OSError as e:
@@ -89,4 +95,20 @@ class Moneta:
     def get_server_directory():
         return rpa_server_subdirectory_path
 
+    @staticmethod
+    def get_server_project_directory(project_name: Optional[str] = F"RPA Objective::{Artisan.get_current_timestamp()}"):
+        rpa_server_project_folder = os.path.join(rpa_server_subdirectory_path, project_name)
+        try:
+            os.makedirs(rpa_server_project_folder, exist_ok=True)
+        except OSError as e:
+            print(f"Moneta encountered error creating TruliooME Data Persistence: {e}")
+        return rpa_server_project_folder
+
+    @staticmethod
+    def get_server_project_filepath(rpa_server_project_folder:str, file_name: str):
+        return os.path.join(rpa_server_project_folder, F"{file_name}")
+
+    @staticmethod
+    def get_server_downloads_directory():
+        return rpa_server_downloads_path
 

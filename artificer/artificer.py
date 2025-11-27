@@ -25,6 +25,7 @@ ASCI_MERCURY = bytes([0xF0, 0x9F, 0x96, 0xA7]).decode("utf-8")
 ASCI_MINERVA = bytes([0xF0, 0x9F, 0x96, 0xAE]).decode("utf-8")
 ASCI_MONETA = bytes([0xF0, 0x9F, 0x96, 0xA5]).decode("utf-8")
 ASCI_PROMETHEUS = bytes([0xF0, 0x9F, 0x97, 0x94 ]).decode("utf-8")
+ASCI_OHM = "\u2127"
 ASCI_REMUS = "\u262F"
 ASCI_ROMULUS = "\u262F"
 ASCI_SECURITAS = "\u2707"

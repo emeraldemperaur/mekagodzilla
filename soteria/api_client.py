@@ -12,6 +12,12 @@ from urllib.parse import urlencode
 
 # Api Client
 T = TypeVar('T', bound=BaseModel)
+BodyType = Union[
+    Dict[str, Any],
+    Sequence[Tuple[str, Any]],
+    bytes,
+    bytearray,
+    str,]
 class ApiClient:
     """
       Asynchronous Soteria API Client
@@ -31,7 +37,7 @@ class ApiClient:
         self.backoff_factor = max(0.0, backoff_factor)
         self.default_headers = default_headers or {}
         self.default_params = default_params or {}
-        self._client = httpx.AsyncClient = httpx.AsyncClient(timeout= timeout, base_url=self.base_url)
+        self._client: httpx.AsyncClient = httpx.AsyncClient(timeout= timeout, base_url=self.base_url)
         self._rate_lock = asyncio.Lock()
         self._min_interval = (1.0 / rate_limit_per_sec) if rate_limit_per_sec and rate_limit_per_sec > 0 else 0.0
         self._last_at = 0.0
@@ -95,8 +101,7 @@ class ApiClient:
     # Public HTTP Helpers
     async def request(self, method: str, path: str, *,
                       params: Optional[Dict[str, Any]] = None, json: Optional[Any] = None,
-                      data: Optional[Union[Dict[str,Any]],
-                      Sequence[Tuple[str,Any]], bytes, bytearray, str] = None,
+                      data: Optional[BodyType] = None,
                       headers: Optional[Dict[str, str]] = None) -> Any:
         url_path = "/" + path.lstrip('/')
         final_params = self._merge_params(params)

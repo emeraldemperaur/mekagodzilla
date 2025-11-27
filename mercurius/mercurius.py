@@ -2,7 +2,12 @@
 from __future__ import annotations
 import asyncio
 import multiprocessing
-from typing import cast, Set
+import time
+from typing import cast, Set, Optional
+from selenium import webdriver
+from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from artificer.artificer import ASCI_BLUE, ASCI_ARROW, ASCI_RESET, ASCI_TEAL, ASCI_MERCURY, ASCI_GREEN, ASCI_POWER
 import os
 from typing import Annotated, AsyncGenerator
@@ -17,13 +22,19 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base, joinedload
+
+from artisan.hermes import Hermes
 from mercurius.db_models import User
 from mercurius.db_models import Artifact
 from mercurius.http_models import Token, TokenPayload, TokenRefreshIn, UserCreate, UserOut, ArtifactCreate, ArtifactOut
+from mercurius.http_models_rpa import RPAResponseOut, TACOSCreateAccountDemoRPARequest, \
+    GlobalGatewayGetAccountRPARequest, GlobalGatewayCreateTestEntityRPARequest
 from mercurius.rate_limiter_middleware import RateLimiterMiddleware
 from mercurius.tools import verify_password, get_password_hash, create_token_pair
 from artisan.artisan import Artisan
 from heimdall.heimdall import Heimdall
+from prometheus.prometheus_fire import PrometheusFire
+from trulioome.trulioome import TruliooME
 
 #load environment variables from .env file
 load_dotenv(verbose=True)
@@ -49,6 +60,13 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 VERSION = os.getenv("VERSION", "MekaGodzilla")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
+chrome_options = ChromeOptions()
+firefox_options = FirefoxOptions()
+if os.getenv("PROMETHEUS_HEADLESS_MODE") == "True":
+    chrome_options.add_argument("--headless=new")
+    firefox_options.add_argument("--headless")
+artisan = Artisan()
+
 class Mercurius:
     _instance = None
 
@@ -57,6 +75,7 @@ class Mercurius:
             # If no instance exists, create a new one using the parent's __new__
             cls._instance = super(Mercurius, cls).__new__(cls)
         return cls._instance  # Always return the existing instance
+
     def __init__(self):
         if not hasattr(self, '_initialized'):
             self.app_server = FastAPI(title="Mercurius", description="MekaGodzilla RPA Server API")
@@ -92,6 +111,23 @@ class Mercurius:
     @staticmethod
     def recommended_workers(cores: int) -> int:
         return max(1, min(8, cores * 2 + 1))
+
+    @staticmethod
+    def get_webdriver() -> WebDriver:
+        prometheus_driver = None
+        match os.getenv("PROMETHEUS_DEFAULT_DRIVER").lower():
+            case "chrome":
+                prometheus_driver = webdriver.Chrome(options=chrome_options)
+                print("Value is chrome.")
+            case "firefox":
+                prometheus_driver = webdriver.Firefox(options=firefox_options)
+                print("Value is firefox.")
+            case "edge":
+                prometheus_driver = webdriver.Edge(options=chrome_options)
+            case _:  # Default case, similar to 'else'
+                prometheus_driver = webdriver.Chrome(options=chrome_options)
+                print("Value does not match any specific browser.")
+        return prometheus_driver
 
 
 heimdall = Heimdall()
@@ -312,11 +348,134 @@ async def get_la_li_lu_le_lo(current_user: CurrentUser):
     return {"mekagodzilla": "online", "user": current_user.email, "platform": Artisan.get_platform(),
             "platform_id": Artisan().userid}
 
-@mercurius.app_server.get("/")
-async def get_root_page():
-    heimdall.info_log("Mercurius API Server :: HTTP GET::Root Page")
-    return {"ok": True, "name": "MekaGodzilla RPA Server"}
+@mercurius.app_server.get("/", response_model=RPAResponseOut,  status_code=status.HTTP_201_CREATED)
+async def get_create_tacos_account_demo(global_gateway_create_account_user:
+Optional[TACOSCreateAccountDemoRPARequest] = None):
+    heimdall.info_log("Mercurius API Server :: HTTP GET::Create Tacos Account Demo")
+    start_time = artisan.get_current_timestamp()
+    rpa_webdriver = await PrometheusFire(heimdall=heimdall, fullscreen=True, headless=False).get_prometheus_webdriver()
+    rpa_webdriver.fullscreen_window()
+    rpa_username = os.getenv("GG_ADMIN_USERNAME")
+    rpa_password = os.getenv("GG_ADMIN_PASSWORD")
+    account_name = "MekaGodzilla Test" or "MekaTron Test"
+    if global_gateway_create_account_user:
+        if global_gateway_create_account_user.username:
+            rpa_username = global_gateway_create_account_user.username
+        if global_gateway_create_account_user.password:
+            rpa_password = global_gateway_create_account_user.password
+        if global_gateway_create_account_user.account_name:
+            account_name = global_gateway_create_account_user.account_name
+    create_account_demo = await TruliooME(heimdall=heimdall,
+                                    web_driver=rpa_webdriver).tacos_create_account_demo(
+        username=rpa_username,
+        password=rpa_password,
+        account_name=account_name,
+        auth_mode=1)
+    rpa_webdriver = create_account_demo[0]
+    is_complete = create_account_demo[1]
+    time.sleep(13)
+    rpa_webdriver.quit()
+    return {
+            "action": F"Create Account Demo ({account_name})",
+            "globalgateway_username": F"{rpa_username}",
+            "is_complete": is_complete, "started_at": start_time,
+            "completed_at": F"{artisan.get_current_timestamp()}",
+            "execution_time": F"{artisan.get_time_delta(start_time=start_time, 
+                    end_time=artisan.get_current_timestamp()).total_seconds()} seconds"}
 
+@mercurius.app_server.get("/client-portal")
+async def get_client_portal():
+    heimdall.info_log("Mercurius API Server :: HTTP GET::LogIn Client Portal Page")
+    rpa_web_driver = await PrometheusFire(fullscreen=True).client_portal_login(username=os.getenv("PORTAL_USERNAME"),
+                                                                         password=os.getenv("PORTAL_PASSWORD"))
+
+@mercurius.app_server.get("/global-gateway-account", response_model=RPAResponseOut, status_code=status.HTTP_200_OK)
+async def get_global_gateway_admin_account(global_gateway_admin_account: GlobalGatewayGetAccountRPARequest):
+    heimdall.info_log("Mercurius API Server :: HTTP GET::LogIn Client Portal Page")
+    start_time = artisan.get_current_timestamp()
+    rpa_web_driver = await PrometheusFire(fullscreen=True).get_prometheus_webdriver()
+    rpa_web_driver.fullscreen_window()
+    rpa_username = os.getenv("GG_ADMIN_USERNAME")
+    rpa_password = os.getenv("GG_ADMIN_PASSWORD")
+    account_name = global_gateway_admin_account.account_name
+    if global_gateway_admin_account:
+        if global_gateway_admin_account.username:
+            rpa_username = global_gateway_admin_account.username
+        if global_gateway_admin_account.password:
+            rpa_password = global_gateway_admin_account.password
+    global_gateway_legacy = await TruliooME(
+        heimdall=heimdall,
+        web_driver=rpa_web_driver).global_gateway_legacy_login(
+        username=rpa_username,
+        password=rpa_password,
+        auth_mode=1)
+    rpa_web_driver = global_gateway_legacy[0]
+    is_complete = global_gateway_legacy[1]
+    if is_complete:
+        go_to_account_request = await TruliooME(
+            heimdall=heimdall,
+            web_driver=rpa_web_driver).go_to_legacy_account_by_name_or_identifier(
+            account_name=account_name)
+        is_complete = go_to_account_request[1]
+    return {"action": F"Go to Global Gateway Admin Account ({account_name})",
+            "globalgateway_username": F"{rpa_username}",
+            "is_complete": is_complete,
+            "started_at": start_time,
+            "completed_at": F"{artisan.get_current_timestamp()}",
+            "execution_time": F"{artisan.get_time_delta(
+                start_time=start_time, end_time=artisan.get_current_timestamp()).total_seconds()} seconds"}
+
+@mercurius.app_server.get("/gg-account-testentity", response_model=RPAResponseOut,
+                          status_code=status.HTTP_201_CREATED)
+async def create_gg_account_test_entity(global_gateway_account_testentity: GlobalGatewayCreateTestEntityRPARequest):
+    account_name = ""
+    is_complete = False
+    start_time = artisan.get_current_timestamp()
+    rpa_web_driver = await PrometheusFire(fullscreen=True).get_prometheus_webdriver()
+    rpa_web_driver.fullscreen_window()
+    rpa_username = os.getenv("GG_ADMIN_USERNAME")
+    rpa_password = os.getenv("GG_ADMIN_PASSWORD")
+    entity_type = global_gateway_account_testentity.entity_type
+    account_name = global_gateway_account_testentity.account_name
+    if global_gateway_account_testentity:
+        if global_gateway_account_testentity.username:
+            rpa_username = global_gateway_account_testentity.username
+        if global_gateway_account_testentity.password:
+            rpa_password = global_gateway_account_testentity.password
+        if global_gateway_account_testentity.entity_type not in ["KYC", "KYB"]:
+            entity_type = "KYC"
+    global_gateway_legacy = await TruliooME(
+        heimdall=heimdall,
+        web_driver=rpa_web_driver).global_gateway_legacy_login(
+        username=rpa_username,
+        password=rpa_password,
+        auth_mode=1)
+    rpa_web_driver = global_gateway_legacy[0]
+    is_logged_in = global_gateway_legacy[1]
+    if is_logged_in:
+        go_to_account_request = await TruliooME(
+            heimdall=heimdall,
+            web_driver=rpa_web_driver).go_to_legacy_account_by_name_or_identifier(
+            account_name=account_name)
+        is_target_account = go_to_account_request[1]
+        if is_target_account:
+            create_account_test_entity = await TruliooME(
+                heimdall=heimdall,
+                web_driver=rpa_web_driver).create_global_gateway_account_test_entity(
+                entity_type=entity_type,
+                country=global_gateway_account_testentity.country,
+                entity_name=global_gateway_account_testentity.entity_name)
+            is_complete = create_account_test_entity[1]
+
+    return {"action": F"Create {Hermes.get_country_code(global_gateway_account_testentity.country)} "
+                      F"{entity_type} "
+                      F"Account ({account_name}) Test Entity ({global_gateway_account_testentity.entity_name})",
+            "globalgateway_username": F"{rpa_username}",
+            "is_complete": is_complete,
+            "started_at": start_time,
+            "completed_at": F"{artisan.get_current_timestamp()}",
+            "execution_time": F"{artisan.get_time_delta(
+                start_time=start_time, end_time=artisan.get_current_timestamp()).total_seconds()} seconds"}
 ## API Root Admin Routes
 
 @mercurius.app_server.get("/admin/ping")

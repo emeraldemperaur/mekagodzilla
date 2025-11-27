@@ -1,9 +1,14 @@
 # Utility Methods
 import getpass
+import os
 import platform
 import textwrap
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from artificer.artificer import ASCI_LOGO, ASCI_ITALIC, ASCI_BOLD, ASCI_RESET, RAG_CONTEXT, ASCI_GREEN, ASCI_RED, ASCI_BLUE
+from dotenv import load_dotenv
+
+load_dotenv(verbose=True)
 
 class Artisan:
     _instance = None
@@ -27,6 +32,28 @@ class Artisan:
                 print(f"{ASCI_RED}Error ({e_getpass}). Could not determine system UserId{ASCI_RESET}")
                 self.userid = "Guest"
             self._initialized = True
+    @staticmethod
+    def get_current_timestamp():
+        return datetime.now(tz=ZoneInfo(os.getenv("TIMEZONE"))).strftime("%d-%m-%Y %H:%M:%S")
+
+    @staticmethod
+    def get_current_date():
+        return datetime.now(tz=ZoneInfo(os.getenv("TIMEZONE"))).strftime("%A %B %d, %Y")
+
+    @staticmethod
+    def get_time():
+        return datetime.now(tz=ZoneInfo(os.getenv("TIMEZONE"))).strftime("%H:%M:%S")
+
+    @staticmethod
+    def get_timestamp():
+        return datetime.now(tz=ZoneInfo(os.getenv("TIMEZONE"))).strftime("%d-%m-%Y %H-%M-%S")
+
+    @staticmethod
+    def get_time_delta(start_time: str, end_time: str) -> timedelta:
+        datetime_format = "%d-%m-%Y %H:%M:%S"
+        start = datetime.strptime(start_time, datetime_format)
+        end = datetime.strptime(end_time, datetime_format)
+        return end - start
 
     @staticmethod
     def rag_context_wrap(rag_context):
@@ -35,6 +62,10 @@ class Artisan:
     @staticmethod
     def get_platform():
         return platform.platform(aliased=True)
+
+    @staticmethod
+    def get_rpa_server_version():
+        return F"{os.getenv("VERSION")} 1.0"
 
     @staticmethod
     def console_output(version, system):

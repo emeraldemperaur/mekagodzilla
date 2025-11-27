@@ -4,7 +4,6 @@ from typing import Optional
 import datetime as dt
 from artisan.artisan import Artisan
 
-
 class Token(BaseModel):
     access_token: str
     refresh_token: str
@@ -12,22 +11,18 @@ class Token(BaseModel):
     expires_in: int
     platform: str = F"{Artisan.get_platform()}"
 
-
 class TokenRefreshIn(BaseModel):
     refresh_token: str
-
 
 class TokenPayload(BaseModel):
     sub: str
     type: str
     exp: int
 
-
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
     role: Optional[str] = None
-
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -37,12 +32,10 @@ class UserOut(BaseModel):
     is_active: bool
     created_at: dt.datetime
 
-
 class ArtifactCreate(BaseModel):
     title: str
     type: str
     content: str
-
 
 class ArtifactOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)

@@ -37,7 +37,6 @@ class Heimdall:
             self.logger.addHandler(log_file_handler)
             self.loki = self.get_loki_handler(ragnarok=True)
             self._initialized = True
-            # print(F"{ASCI_BLUE}{ASCI_ARROW} Heimdall Initialized{ASCI_RESET}")
 
     @staticmethod
     def init_log():
@@ -46,7 +45,7 @@ class Heimdall:
     def info_log(self, message):
         self.logger.info(message, extra={'system name': system_info.userid})
 
-    def warning_log(self, message):
+    async def warning_log(self, message):
         self.logger.warning(message, extra={'system name': system_info.userid})
 
     def error_log(self, message):
