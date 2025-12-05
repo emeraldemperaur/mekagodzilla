@@ -9,3 +9,4 @@
 .env-*
 *.log
 *.sqlite3
+*.db

@@ -1,6 +1,6 @@
 # HTTP RPA Request Schemas
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from pydantic import BaseModel, EmailStr, SecretStr
+from typing import Optional, Literal
 import datetime as dt
 from artisan.artisan import Artisan
 from artisan.hermes import Hermes
@@ -12,7 +12,7 @@ class GlobalGatewayLoginRPARequest(BaseModel):
 
 class GlobalGatewayGetAccountRPARequest(BaseModel):
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[SecretStr] = None
     account_name: str
     account_identifier: Optional[str] = None
     email_address: Optional[str] = None
@@ -24,14 +24,14 @@ class GlobalGatewayCreateTestEntityRPARequest(BaseModel):
     account_name: str
     country: str
     entity_name: str
-    entity_type: Optional[str] = "KYC"
+    entity_type: Optional[Literal['KYC', 'KYB', 'None']] = None
     account_identifier: Optional[str] = None
     email_address: Optional[str] = None
     sub_account_name: Optional[str] = None
 
 class TACOSCreateAccountDemoRPARequest(BaseModel):
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[SecretStr] = None
     account_name: Optional[str] = None
     account_identifier: Optional[str] = None
     is_mfa: Optional[bool] = None
@@ -108,7 +108,7 @@ class RPAResponseOut(BaseModel):
     rpa_server: Optional[str] = F"{Artisan.get_rpa_server_version()}"
     os_platform: Optional[str] = F"{Artisan.get_platform()}"
     action: str
-    parameters: Optional[list[dict]] = None
+    parameters: Optional[dict] = None
     globalgateway_username: Optional[str] = None
     clientadmin_username: Optional[str] = None
     is_complete: bool

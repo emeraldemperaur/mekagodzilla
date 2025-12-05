@@ -28,7 +28,9 @@ from mercurius.db_models import User
 from mercurius.db_models import Artifact
 from mercurius.http_models import Token, TokenPayload, TokenRefreshIn, UserCreate, UserOut, ArtifactCreate, ArtifactOut
 from mercurius.http_models_rpa import RPAResponseOut, TACOSCreateAccountDemoRPARequest, \
-    GlobalGatewayGetAccountRPARequest, GlobalGatewayCreateTestEntityRPARequest
+    GlobalGatewayGetAccountRPARequest
+from mercurius.http_models_testentity import GlobalGatewayCreateAccountTestEntityRPARequest, \
+    GlobalGatewayCreateKYCSubAccountTestEntityRPARequest, GlobalGatewayCreateKYBSubAccountTestEntityRPARequest
 from mercurius.rate_limiter_middleware import RateLimiterMiddleware
 from mercurius.tools import verify_password, get_password_hash, create_token_pair
 from artisan.artisan import Artisan
@@ -47,7 +49,7 @@ CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if 
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", 120))
 USER_DEFAULT_ROLE = os.getenv("USER_DEFAULT_ROLE", "admin")
 ROOT_ADMIN_DEFAULT_ROLE = os.getenv("ROOT_ADMIN_DEFAULT_ROLE", "root")
-DEV_MODE = os.getenv("DEV_MODE", "false").lower() in {"yes","true", "1", "on"}
+DEV_MODE = os.getenv("DEV_MODE", "false").lower() in {"yes", "true", "1", "on"}
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", 4134))
 
@@ -66,6 +68,7 @@ if os.getenv("PROMETHEUS_HEADLESS_MODE") == "True":
     chrome_options.add_argument("--headless=new")
     firefox_options.add_argument("--headless")
 artisan = Artisan()
+
 
 class Mercurius:
     _instance = None
@@ -139,6 +142,7 @@ async def on_startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+
 # CORS Middleware
 mercurius.app_server.add_middleware(
     CORSMiddleware,
@@ -148,13 +152,16 @@ mercurius.app_server.add_middleware(
     allow_headers=["*"],
 )
 
-
 mercurius.app_server.add_middleware(RateLimiterMiddleware, limit_per_min=RATE_LIMIT_PER_MIN)
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with SessionLocal() as session:
         yield session
+
+
 DB = Annotated[AsyncSession, Depends(get_db)]
+
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: DB) -> type[User] | None:
     credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
@@ -174,14 +181,18 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: DB
         raise credentials_exception
     return user
 
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
 
 def require_roles(*allowed: str):
     allowed_set: Set[str] = {r.lower() for r in allowed}
+
     async def _dep(current_user: CurrentUser) -> User:
         if current_user.role not in allowed_set:
             raise HTTPException(status_code=403, detail=F"Forbidden: Not allowed for this user ({current_user.role})")
         return current_user
+
     return _dep
 
 
@@ -202,6 +213,7 @@ async def register_user(user_in: UserCreate, db: DB):
                       F"User Register")
     return user
 
+
 @mercurius.app_server.post("/auth/login", response_model=Token, status_code=status.HTTP_200_OK)
 async def login_user(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: DB):
     sql_statement = select(User).where(User.email == form_data.username)
@@ -212,6 +224,7 @@ async def login_user(form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     heimdall.info_log(F"Mercurius API Server :: HTTP POST::({user.email}) "
                       F"User Log In")
     return create_token_pair(cast(int, cast(object, user.id)))
+
 
 @mercurius.app_server.post("/auth/refresh", response_model=Token, status_code=status.HTTP_200_OK)
 async def refresh_tokens(body: TokenRefreshIn, db: DB):
@@ -230,20 +243,23 @@ async def refresh_tokens(body: TokenRefreshIn, db: DB):
                       F"Refreshed Token")
     return create_token_pair(cast(int, cast(object, user.id)))
 
+
 @mercurius.app_server.get("/users/me", response_model=UserOut, status_code=status.HTTP_200_OK)
 async def get_me(current_user: CurrentUser):
     heimdall.info_log(F"Mercurius API Server :: HTTP GET::({current_user.email}) "
                       F"Fetched Current User Profile: {current_user.email}")
     return current_user
 
+
 @mercurius.app_server.get("/users", response_model=list[UserOut], status_code=status.HTTP_200_OK)
-async def get_users(db: DB, current_user:  Annotated[User,
+async def get_users(db: DB, current_user: Annotated[User,
 Depends(require_roles("admin", "root"))]):
     sql_statement = select(User).order_by(User.id.desc())
     result = await db.execute(sql_statement)
     heimdall.info_log(F"Mercurius API Server :: HTTP GET::({current_user.email}:{current_user.role}) "
                       F"Fetched All Users")
     return result.scalars().all()
+
 
 ## API CRUD Routes
 @mercurius.app_server.post("/artifacts", response_model=ArtifactOut, status_code=status.HTTP_201_CREATED)
@@ -257,6 +273,7 @@ async def create_artifact(artifact_in: ArtifactCreate, db: DB, current_user: Cur
                       F"Created New Artifact: {artifact.title} @ {artifact.created_at}")
     return artifact
 
+
 @mercurius.app_server.get("/artifacts", response_model=list[ArtifactOut], status_code=status.HTTP_200_OK)
 async def get_my_artifacts(db: DB, current_user: CurrentUser):
     sql_statement = (select(Artifact).options(joinedload(Artifact.owner)).where(Artifact.owner_id == current_user.id)
@@ -266,6 +283,7 @@ async def get_my_artifacts(db: DB, current_user: CurrentUser):
                       F"Fetched All User Artifacts")
     return result.scalars().all()
 
+
 @mercurius.app_server.get("/artifacts-all", response_model=list[ArtifactOut], status_code=status.HTTP_200_OK)
 async def get_all_artifacts(db: DB, current_user: Annotated[User,
 Depends(require_roles("admin", "root"))]):
@@ -274,6 +292,7 @@ Depends(require_roles("admin", "root"))]):
     heimdall.info_log(F"Mercurius API Server :: HTTP GET::({current_user.email}:{current_user.role}) "
                       F"Fetched All Artifacts")
     return result.scalars().all()
+
 
 @mercurius.app_server.get("/artifacts/{artifact_id}", response_model=ArtifactOut, status_code=status.HTTP_200_OK)
 async def get_my_artifact(artifact_id: int, db: DB, current_user: CurrentUser):
@@ -287,6 +306,7 @@ async def get_my_artifact(artifact_id: int, db: DB, current_user: CurrentUser):
     heimdall.info_log(
         F"Mercurius API Server :: HTTP GET::({current_user.email}) Fetched User Artifact By ID ({artifact_id})")
     return artifact
+
 
 @mercurius.app_server.get("/artifacts-any/{artifact_id}", response_model=ArtifactOut,
                           status_code=status.HTTP_200_OK)
@@ -303,6 +323,7 @@ Depends(require_roles("admin", "root"))]):
         F"Mercurius API Server :: HTTP GET::({current_user.email}) Fetched * Artifact By ID ({artifact_id})")
     return artifact
 
+
 @mercurius.app_server.delete("/artifacts/{artifact_id}", status_code=status.HTTP_200_OK)
 async def delete_my_artifact(artifact_id: int, db: DB, current_user: CurrentUser):
     artifact = await db.get(Artifact, artifact_id)
@@ -314,8 +335,9 @@ async def delete_my_artifact(artifact_id: int, db: DB, current_user: CurrentUser
                       F"({artifact_id})")
     return artifact
 
+
 @mercurius.app_server.delete("/artifacts-any/{artifact_id}", status_code=status.HTTP_200_OK)
-async def delete_any_artifact(artifact_id: int, db: DB, current_user:  Annotated[User,
+async def delete_any_artifact(artifact_id: int, db: DB, current_user: Annotated[User,
 Depends(require_roles("admin", "root"))]):
     artifact = await db.get(Artifact, artifact_id)
     if not artifact:
@@ -326,6 +348,7 @@ Depends(require_roles("admin", "root"))]):
                       F"({artifact_id})")
     return artifact
 
+
 @mercurius.app_server.delete("/artifacts", status_code=status.HTTP_200_OK)
 async def delete_all_my_artifact(db: DB, current_user: CurrentUser):
     await db.execute(select(Artifact).where(Artifact.owner_id == current_user.id))
@@ -333,6 +356,7 @@ async def delete_all_my_artifact(db: DB, current_user: CurrentUser):
     await db.commit()
     heimdall.info_log(F"Mercurius API Server :: HTTP DELETE::({current_user.email}) Deleted All User Artifacts")
     return {"action": "delete", "type": "owner", "user": current_user.email}
+
 
 @mercurius.app_server.delete("/artifacts-any", status_code=status.HTTP_200_OK)
 async def delete_all_any_artifact(db: DB, current_user: Annotated[User,
@@ -342,13 +366,15 @@ Depends(require_roles("admin", "root"))]):
     heimdall.info_log(F"Mercurius API Server :: HTTP DELETE::({current_user.email}) Deleted * Artifacts")
     return {"action": "delete", "type": "admin", "user": current_user.email}
 
+
 @mercurius.app_server.get("/la-li-lu-le-lo")
 async def get_la_li_lu_le_lo(current_user: CurrentUser):
     heimdall.info_log(F"Mercurius API Server :: HTTP GET::La Li Lu Le Lo ({current_user.email})")
     return {"mekagodzilla": "online", "user": current_user.email, "platform": Artisan.get_platform(),
             "platform_id": Artisan().userid}
 
-@mercurius.app_server.get("/", response_model=RPAResponseOut,  status_code=status.HTTP_201_CREATED)
+
+@mercurius.app_server.get("/", response_model=RPAResponseOut, status_code=status.HTTP_201_CREATED)
 async def get_create_tacos_account_demo(global_gateway_create_account_user:
 Optional[TACOSCreateAccountDemoRPARequest] = None):
     heimdall.info_log("Mercurius API Server :: HTTP GET::Create Tacos Account Demo")
@@ -362,11 +388,11 @@ Optional[TACOSCreateAccountDemoRPARequest] = None):
         if global_gateway_create_account_user.username:
             rpa_username = global_gateway_create_account_user.username
         if global_gateway_create_account_user.password:
-            rpa_password = global_gateway_create_account_user.password
+            rpa_password = global_gateway_create_account_user.password.get_secret_value()
         if global_gateway_create_account_user.account_name:
             account_name = global_gateway_create_account_user.account_name
     create_account_demo = await TruliooME(heimdall=heimdall,
-                                    web_driver=rpa_webdriver).tacos_create_account_demo(
+                                          web_driver=rpa_webdriver).tacos_create_account_demo(
         username=rpa_username,
         password=rpa_password,
         account_name=account_name,
@@ -376,18 +402,21 @@ Optional[TACOSCreateAccountDemoRPARequest] = None):
     time.sleep(13)
     rpa_webdriver.quit()
     return {
-            "action": F"Create Account Demo ({account_name})",
-            "globalgateway_username": F"{rpa_username}",
-            "is_complete": is_complete, "started_at": start_time,
-            "completed_at": F"{artisan.get_current_timestamp()}",
-            "execution_time": F"{artisan.get_time_delta(start_time=start_time, 
-                    end_time=artisan.get_current_timestamp()).total_seconds()} seconds"}
+        "action": F"Create Account Demo ({account_name})",
+        "parameters": global_gateway_create_account_user.model_dump(),
+        "globalgateway_username": F"{rpa_username}",
+        "is_complete": is_complete, "started_at": start_time,
+        "completed_at": F"{artisan.get_current_timestamp()}",
+        "execution_time": F"{artisan.get_time_delta(start_time=start_time,
+                                                    end_time=artisan.get_current_timestamp()).total_seconds()} seconds"}
+
 
 @mercurius.app_server.get("/client-portal")
 async def get_client_portal():
     heimdall.info_log("Mercurius API Server :: HTTP GET::LogIn Client Portal Page")
     rpa_web_driver = await PrometheusFire(fullscreen=True).client_portal_login(username=os.getenv("PORTAL_USERNAME"),
-                                                                         password=os.getenv("PORTAL_PASSWORD"))
+                                                                               password=os.getenv("PORTAL_PASSWORD"))
+
 
 @mercurius.app_server.get("/global-gateway-account", response_model=RPAResponseOut, status_code=status.HTTP_200_OK)
 async def get_global_gateway_admin_account(global_gateway_admin_account: GlobalGatewayGetAccountRPARequest):
@@ -402,7 +431,7 @@ async def get_global_gateway_admin_account(global_gateway_admin_account: GlobalG
         if global_gateway_admin_account.username:
             rpa_username = global_gateway_admin_account.username
         if global_gateway_admin_account.password:
-            rpa_password = global_gateway_admin_account.password
+            rpa_password = global_gateway_admin_account.password.get_secret_value()
     global_gateway_legacy = await TruliooME(
         heimdall=heimdall,
         web_driver=rpa_web_driver).global_gateway_legacy_login(
@@ -418,6 +447,7 @@ async def get_global_gateway_admin_account(global_gateway_admin_account: GlobalG
             account_name=account_name)
         is_complete = go_to_account_request[1]
     return {"action": F"Go to Global Gateway Admin Account ({account_name})",
+            "parameters": global_gateway_admin_account.model_dump(),
             "globalgateway_username": F"{rpa_username}",
             "is_complete": is_complete,
             "started_at": start_time,
@@ -425,10 +455,15 @@ async def get_global_gateway_admin_account(global_gateway_admin_account: GlobalG
             "execution_time": F"{artisan.get_time_delta(
                 start_time=start_time, end_time=artisan.get_current_timestamp()).total_seconds()} seconds"}
 
+
 @mercurius.app_server.get("/gg-account-testentity", response_model=RPAResponseOut,
                           status_code=status.HTTP_201_CREATED)
-async def create_gg_account_test_entity(global_gateway_account_testentity: GlobalGatewayCreateTestEntityRPARequest):
-    account_name = ""
+async def create_gg_account_test_entity(
+        global_gateway_account_testentity: GlobalGatewayCreateAccountTestEntityRPARequest):
+    if global_gateway_account_testentity.entity_country not in Hermes.get_country_list():
+        raise HTTPException(detail=F"'country': {global_gateway_account_testentity.country}' is not a valid "
+                                   F"country name. Valid country names: {Hermes.get_country_list()}",
+                       status_code=status.HTTP_400_BAD_REQUEST)
     is_complete = False
     start_time = artisan.get_current_timestamp()
     rpa_web_driver = await PrometheusFire(fullscreen=True).get_prometheus_webdriver()
@@ -441,7 +476,7 @@ async def create_gg_account_test_entity(global_gateway_account_testentity: Globa
         if global_gateway_account_testentity.username:
             rpa_username = global_gateway_account_testentity.username
         if global_gateway_account_testentity.password:
-            rpa_password = global_gateway_account_testentity.password
+            rpa_password = global_gateway_account_testentity.password.get_secret_value()
         if global_gateway_account_testentity.entity_type not in ["KYC", "KYB"]:
             entity_type = "KYC"
     global_gateway_legacy = await TruliooME(
@@ -463,19 +498,150 @@ async def create_gg_account_test_entity(global_gateway_account_testentity: Globa
                 heimdall=heimdall,
                 web_driver=rpa_web_driver).create_global_gateway_account_test_entity(
                 entity_type=entity_type,
-                country=global_gateway_account_testentity.country,
-                entity_name=global_gateway_account_testentity.entity_name)
+                country=global_gateway_account_testentity.entity_country,
+                entity_name=global_gateway_account_testentity.entity_name,
+                request_parameters=global_gateway_account_testentity)
             is_complete = create_account_test_entity[1]
 
-    return {"action": F"Create {Hermes.get_country_code(global_gateway_account_testentity.country)} "
+    return {"action": F"Create {Hermes.get_country_code(global_gateway_account_testentity.entity_country)} "
                       F"{entity_type} "
                       F"Account ({account_name}) Test Entity ({global_gateway_account_testentity.entity_name})",
+            "parameters": global_gateway_account_testentity.model_dump(),
             "globalgateway_username": F"{rpa_username}",
             "is_complete": is_complete,
             "started_at": start_time,
             "completed_at": F"{artisan.get_current_timestamp()}",
             "execution_time": F"{artisan.get_time_delta(
                 start_time=start_time, end_time=artisan.get_current_timestamp()).total_seconds()} seconds"}
+
+@mercurius.app_server.get("/gg-kyc-subaccount-testentity", response_model=RPAResponseOut,
+                          status_code=status.HTTP_201_CREATED)
+async def create_gg_kyc_subaccount_test_entity(
+        global_gateway_subaccount_kyc_testentity:
+        GlobalGatewayCreateKYCSubAccountTestEntityRPARequest):
+
+    if global_gateway_subaccount_kyc_testentity:
+        if global_gateway_subaccount_kyc_testentity.entity_country not in Hermes.get_country_list():
+            raise HTTPException(detail=F"'country': {global_gateway_subaccount_kyc_testentity.country}' is not a valid "
+                                       F"country name. Valid country names: {Hermes.get_country_list()}",
+                                status_code=status.HTTP_400_BAD_REQUEST)
+    is_complete = False
+    start_time = artisan.get_current_timestamp()
+    rpa_web_driver = await PrometheusFire(fullscreen=True).get_prometheus_webdriver()
+    rpa_web_driver.fullscreen_window()
+    rpa_username = os.getenv("GG_ADMIN_USERNAME")
+    rpa_password = os.getenv("GG_ADMIN_PASSWORD")
+    entity_type = global_gateway_subaccount_kyc_testentity.entity_type
+
+    account_name = global_gateway_subaccount_kyc_testentity.account_name
+    if global_gateway_subaccount_kyc_testentity:
+        if global_gateway_subaccount_kyc_testentity.username:
+            rpa_username = global_gateway_subaccount_kyc_testentity.username
+        if global_gateway_subaccount_kyc_testentity.password:
+            rpa_password = global_gateway_subaccount_kyc_testentity.password.get_secret_value()
+        global_gateway_legacy = await TruliooME(
+            heimdall=heimdall,
+            web_driver=rpa_web_driver).global_gateway_legacy_login(
+            username=rpa_username,
+            password=rpa_password,
+            auth_mode=1)
+        rpa_web_driver = global_gateway_legacy[0]
+        is_logged_in = global_gateway_legacy[1]
+        if is_logged_in:
+            go_to_account_request = await TruliooME(
+                heimdall=heimdall,
+                web_driver=rpa_web_driver).go_to_legacy_account_by_name_or_identifier(
+                account_name=account_name)
+            is_target_account = go_to_account_request[1]
+            if is_target_account:
+                create_subaccount_test_entity = await TruliooME(
+                heimdall=heimdall,
+                web_driver=rpa_web_driver).create_global_gateway_subaccount_test_entity(
+                    entity_type="KYC",
+                    country=global_gateway_subaccount_kyc_testentity.entity_country,
+                    entity_name=global_gateway_subaccount_kyc_testentity.entity_name,
+                    kyc_request_parameters=global_gateway_subaccount_kyc_testentity,
+                    subaccount_identifier=global_gateway_subaccount_kyc_testentity.subaccount_identifier,
+                    kyb_request_parameters=None)
+                is_complete = create_subaccount_test_entity[1]
+
+    return {"action": F"Create {Hermes.get_country_code(global_gateway_subaccount_kyc_testentity.entity_country)} "
+                      F"{entity_type} "
+                      F"Subaccount ({account_name}: "
+                      F"{global_gateway_subaccount_kyc_testentity.subaccount_identifier}) Test Entity "
+                      F"({global_gateway_subaccount_kyc_testentity.entity_name}) )",
+            "parameters": global_gateway_subaccount_kyc_testentity.model_dump(),
+            "globalgateway_username": F"{rpa_username}",
+            "is_complete": is_complete,
+            "started_at": start_time,
+            "completed_at": F"{artisan.get_current_timestamp()}",
+            "execution_time": F"{artisan.get_time_delta(
+                start_time=start_time, end_time=artisan.get_current_timestamp()).total_seconds()} seconds"}
+
+@mercurius.app_server.get("/gg-kyb-subaccount-testentity", response_model=RPAResponseOut,
+                          status_code=status.HTTP_201_CREATED)
+async def create_gg_kyb_subaccount_test_entity(
+        global_gateway_subaccount_kyb_testentity:
+        GlobalGatewayCreateKYBSubAccountTestEntityRPARequest):
+    if global_gateway_subaccount_kyb_testentity:
+        if global_gateway_subaccount_kyb_testentity.entity_country not in Hermes.get_country_list():
+            raise HTTPException(detail=F"'country': {global_gateway_subaccount_kyb_testentity.country}' is not a valid "
+                                       F"country name. Valid country names: {Hermes.get_country_list()}",
+                                status_code=status.HTTP_400_BAD_REQUEST)
+    is_complete = False
+    start_time = artisan.get_current_timestamp()
+    rpa_web_driver = await PrometheusFire(fullscreen=True).get_prometheus_webdriver()
+    rpa_web_driver.fullscreen_window()
+    rpa_username = os.getenv("GG_ADMIN_USERNAME")
+    rpa_password = os.getenv("GG_ADMIN_PASSWORD")
+    entity_type = global_gateway_subaccount_kyb_testentity.entity_type
+    account_name = global_gateway_subaccount_kyb_testentity.account_name
+    if global_gateway_subaccount_kyb_testentity:
+        if global_gateway_subaccount_kyb_testentity.username:
+            rpa_username = global_gateway_subaccount_kyb_testentity.username
+        if global_gateway_subaccount_kyb_testentity.password:
+            rpa_password = global_gateway_subaccount_kyb_testentity.password.get_secret_value()
+        global_gateway_legacy = await TruliooME(
+            heimdall=heimdall,
+            web_driver=rpa_web_driver).global_gateway_legacy_login(
+            username=rpa_username,
+            password=rpa_password,
+            auth_mode=1)
+        rpa_web_driver = global_gateway_legacy[0]
+        is_logged_in = global_gateway_legacy[1]
+        if is_logged_in:
+            go_to_account_request = await TruliooME(
+                heimdall=heimdall,
+                web_driver=rpa_web_driver).go_to_legacy_account_by_name_or_identifier(
+                account_name=account_name)
+            is_target_account = go_to_account_request[1]
+            if is_target_account:
+                create_subaccount_test_entity = await TruliooME(
+                heimdall=heimdall,
+                web_driver=rpa_web_driver).create_global_gateway_subaccount_test_entity(
+                    entity_type="KYB",
+                    country=global_gateway_subaccount_kyb_testentity.entity_country,
+                    entity_name=global_gateway_subaccount_kyb_testentity.entity_name,
+                    kyb_request_parameters=global_gateway_subaccount_kyb_testentity,
+                    subaccount_identifier=global_gateway_subaccount_kyb_testentity.subaccount_identifier,
+                    kyc_request_parameters=None)
+                is_complete = create_subaccount_test_entity[1]
+
+    return {"action": F"Create {Hermes.get_country_code(global_gateway_subaccount_kyb_testentity.entity_country)} "
+                      F"{entity_type} "
+                      F"Subaccount ({account_name}: "
+                      F"{global_gateway_subaccount_kyb_testentity.subaccount_identifier}) Test Entity "
+                      F"({global_gateway_subaccount_kyb_testentity.entity_name}) )",
+            "parameters": global_gateway_subaccount_kyb_testentity.model_dump(),
+            "globalgateway_username": F"{rpa_username}",
+            "is_complete": is_complete,
+            "started_at": start_time,
+            "completed_at": F"{artisan.get_current_timestamp()}",
+            "execution_time": F"{artisan.get_time_delta(
+                start_time=start_time, end_time=artisan.get_current_timestamp()).total_seconds()} seconds"}
+
+
+
 ## API Root Admin Routes
 
 @mercurius.app_server.get("/admin/ping")
@@ -483,10 +649,12 @@ async def admin_ping(current_user: Annotated[User, Depends(require_roles("admin"
     heimdall.info_log(F"Mercurius API Server :: HTTP GET::Admin Ping ({current_user.email})")
     return {"ok": True, "user": current_user.email, "role": current_user.role, "is_admin": True}
 
+
 @mercurius.app_server.get("/root/ping")
 async def admin_ping(current_user: Annotated[User, Depends(require_roles("root"))]):
     heimdall.info_log(F"Mercurius API Server :: HTTP GET::Root Ping ({current_user.email})")
     return {"ok": True, "user": current_user.email, "role": current_user.role, "is_root": True}
+
 
 @mercurius.app_server.get("/administrator/root")
 async def administrator_root(current_user: Annotated[User, Depends(require_roles("root"))]):

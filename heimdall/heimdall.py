@@ -10,13 +10,17 @@ from dotenv import load_dotenv
 
 load_dotenv(verbose=True)
 system_info = Artisan()
-log_file_path = os.path.join(Moneta.get_db_directory(), "heimdall.log")
-log_file_handler = logging.FileHandler(log_file_path)
-log_file_handler.setLevel(logging.INFO)
-log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(threadName)s')
-log_file_handler.setFormatter(log_formatter)
 VERSION = os.getenv("VERSION", "MekaGodzilla")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+home_directory = os.path.expanduser("~")
+documents_folder = os.path.join(home_directory, "Documents")
+rpa_directory_name = os.getenv("RPA_DIRECTORY_NAME", "TruliooME")
+db_subdirectory_name = os.getenv("RPA_DB_SUBDIRECTORY", "Moneta")
+rpa_directory_path = os.path.join(documents_folder, rpa_directory_name)
+if system_info.platform.__contains__("Windows"):
+    db_subdirectory_path = os.path.join(rpa_directory_path, db_subdirectory_name)
+else:
+    db_subdirectory_path = os.path.join(rpa_directory_path, F'.{db_subdirectory_name}')
 
 class Heimdall:
     _instance = None
@@ -28,6 +32,17 @@ class Heimdall:
         return cls._instance  # Always return the existing instance
 
     def __init__(self):
+        try:
+            os.makedirs(db_subdirectory_path, exist_ok=True)
+            if system_info.platform.__contains__("Windows"):
+                os.system(f'attrib +h "{db_subdirectory_path}"')
+        except OSError as e:
+            print(f"Heimdall encountered error creating TruliooME Data Persistence: {e}")
+        log_file_path = os.path.join(Moneta.get_db_directory(), "heimdall.log")
+        log_file_handler = logging.FileHandler(log_file_path)
+        log_file_handler.setLevel(logging.INFO)
+        log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(threadName)s')
+        log_file_handler.setFormatter(log_formatter)
         if not hasattr(self, '_initialized'):
             logging.raiseExceptions = False
             self.logger = logging.getLogger("Heimdall Watchtower")

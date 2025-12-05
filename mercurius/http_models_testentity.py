@@ -1,11 +1,11 @@
 # HTTP RPA Test Entity Request Schemas
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from pydantic import BaseModel, EmailStr, SecretStr
+from typing import Optional, Literal
 import datetime as dt
 
 class GlobalGatewayCreateAccountTestEntityRPARequest(BaseModel):
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[SecretStr] = None
     # Account Information
     account_name: str
     account_identifier: Optional[str] = None
@@ -13,17 +13,21 @@ class GlobalGatewayCreateAccountTestEntityRPARequest(BaseModel):
     entity_country: str
     # Test Entity Information
     entity_name: str
+    entity_type: Optional[Literal['KYC', 'KYB', 'None']] = None
     # Name
     prefix: Optional[str] = None
-    first_name: str
+    first_name: Optional[str] = None
     first_initial: Optional[str] = None
     middle_name: Optional[str] = None
     middle_inital: Optional[str] = None
-    last_name: str
+    last_name: Optional[str] = None
     business_name: Optional[str] = None
     tradestyle_name: Optional[str] = None
     # Date of Birth
-    date_of_birth: dt.date | str
+    date_of_birth: Optional[dt.date | str] = None
+    date_of_birth_day: Optional[str] = None
+    date_of_birth_month: Optional[str] = None
+    date_of_birth_year: Optional[str] = None
     # Address
     address_1: Optional[str] = "123 Fake St"
     unit_number: Optional[int | str] = None
@@ -219,14 +223,16 @@ class GlobalGatewayCreateAccountTestEntityRPARequest(BaseModel):
 
 class GlobalGatewayCreateKYCSubAccountTestEntityRPARequest(BaseModel):
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[SecretStr] = None
     # Account Information
     account_name: str
+    subaccount_identifier: str
     account_identifier: Optional[str] = None
     # Target Country
     entity_country: str
     # Test Entity Information
     entity_name: str
+    entity_type: Optional[Literal['KYC', 'KYB', 'None']] = None
     # Name
     prefix: Optional[str] = None
     first_name: str
@@ -235,7 +241,10 @@ class GlobalGatewayCreateKYCSubAccountTestEntityRPARequest(BaseModel):
     middle_inital: Optional[str] = None
     last_name: str
     # Date of Birth
-    date_of_birth: dt.date | str
+    date_of_birth: Optional[dt.date | str] = None
+    date_of_birth_day: Optional[str] = None
+    date_of_birth_month: Optional[str] = None
+    date_of_birth_year: Optional[str] = None
     # Address
     address_1: Optional[str] = "123 Fake St"
     unit_number: Optional[int | str] = None
@@ -449,25 +458,30 @@ class GlobalGatewayCreateKYCSubAccountTestEntityRPARequest(BaseModel):
 
 class GlobalGatewayCreateKYBSubAccountTestEntityRPARequest(BaseModel):
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[SecretStr] = None
     # Account Information
     account_name: str
+    subaccount_identifier: str
     account_identifier: Optional[str] = None
     # Target Country
     entity_country: str
     # Test Entity Information
     entity_name: str
+    entity_type: Optional[Literal['KYC', 'KYB', 'None']] = None
     # Name
     prefix: Optional[str] = None
-    first_name: str
+    first_name: Optional[str] = None
     first_initial: Optional[str] = None
     middle_name: Optional[str] = None
     middle_inital: Optional[str] = None
-    last_name: str
-    business_name: Optional[str] = None
+    last_name: Optional[str] = None
+    business_name: str
     tradestyle_name: Optional[str] = None
     # Date of Birth
-    date_of_birth: dt.date | str
+    date_of_birth: Optional[dt.date | str] = None
+    date_of_birth_day: Optional[str] = None
+    date_of_birth_month: Optional[str] = None
+    date_of_birth_year: Optional[str] = None
     # Address
     address_1: Optional[str] = "123 Fake St"
     unit_number: Optional[int | str] = None

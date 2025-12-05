@@ -1,14 +1,17 @@
 # Trulioo SME Logic
 from typing import Optional
+from urllib.parse import urlparse, parse_qs
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
-
 from artificer.artificer import ASCI_GREEN, ASCI_RESET, ASCI_ONLINE, ASCI_TEAL, ASCI_OHM, ASCI_RED
 from artisan.artisan import Artisan
 from artisan.hermes import Hermes
 from heimdall.heimdall import Heimdall
+from mercurius.http_models_testentity import GlobalGatewayCreateAccountTestEntityRPARequest, \
+    GlobalGatewayCreateKYCSubAccountTestEntityRPARequest, GlobalGatewayCreateKYBSubAccountTestEntityRPARequest
 from prometheus.prometheus_forge import Prometheum
+from trulioome.trulioome_formx import TruliooMEFormX
 
 
 class TruliooME:
@@ -302,8 +305,8 @@ class TruliooME:
         return self.webdriver, is_complete
 
     async def create_global_gateway_account_test_entity(
-            self, country: str, entity_name: str,
-            entity_type: Optional[str] = "KYC", web_driver: Optional[WebDriver] = None) -> tuple[WebDriver, bool]:
+            self, country: str, entity_name: str, request_parameters: GlobalGatewayCreateAccountTestEntityRPARequest,
+            entity_type: Optional[str] = "KYC", web_driver: Optional[WebDriver] = None, ) -> tuple[WebDriver, bool]:
         is_complete = False
         if web_driver is None:
             web_driver = self.webdriver
@@ -340,13 +343,92 @@ class TruliooME:
                                         locator_value='//*[@id="TestEntityName"]')
                                     if entity_name_field:
                                         entity_name_field.send_keys(entity_name)
-                                        is_complete = True
+                                    form_fill = await TruliooMEFormX(
+                                            webdriver=web_driver,
+                                            rpa_objective=F'Create New {Hermes.get_country_code(country)} '
+                                                          F'Test Entity').fill_account_test_entity_form(
+                                            country_name=country, parameters=request_parameters)
+                                    is_complete = form_fill[1]
         return web_driver, is_complete
 
-    async def create_global_gateway_subaccount_test_entity(self, account_name: str,
-                                                        account_identifier: Optional[str] = None,
-                                                        web_driver: Optional[WebDriver] = None):
-        pass
+    async def create_global_gateway_subaccount_test_entity(self,
+                                                           entity_name: str,
+                                                           country: str,
+                                                           kyc_request_parameters:
+                                                           Optional[GlobalGatewayCreateKYCSubAccountTestEntityRPARequest],
+                                                           kyb_request_parameters:
+                                                           Optional[GlobalGatewayCreateKYBSubAccountTestEntityRPARequest],
+                                                           subaccount_identifier:str,
+                                                           entity_type: Optional[str] = "KYC",
+                                                           web_driver:
+                                                           Optional[WebDriver] = None) -> tuple[WebDriver, bool]:
+        is_complete = False
+        if entity_type == "KYB":
+            request_parameters = kyb_request_parameters
+        else:
+            request_parameters = kyc_request_parameters
+        if web_driver is None:
+            web_driver = self.webdriver
+        element_forge = Prometheum(webdriver=web_driver)
+        print(F"\t{ASCI_TEAL}{ASCI_OHM} TruliooME Agent Core :: Create Global Gateway {entity_type} "
+              F"{Hermes.get_country_code(country)} Subaccount Test Entity ({entity_name})"
+              F" {ASCI_RESET}")
+        if element_forge.page_title_is("AccountOverview"):
+            current_url = web_driver.current_url
+            parsed_url = urlparse(current_url)
+            query_params = (parse_qs(parsed_url.query))
+            account_identifier = (
+                query_params.get('accountIdentifier'))[0] if 'accountIdentifier' in query_params else None
+            web_driver.get(F'https://adminportal.trulioo.com/GDCSubAccounts/Index?accountIdentifier='
+                           F'{account_identifier}')
+            if element_forge.page_title_is("Index"):
+                web_driver.get(F'https://adminportal.trulioo.com/GDCSubAccounts/Details?accountIdentifier='
+                               F'{subaccount_identifier}')
+                if element_forge.page_title_is("SubAccountOverview"):
+                    web_driver.get(F'https://adminportal.trulioo.com/TestEntities/GDCSelectCountry?accountIdentifier='
+                                   F'{subaccount_identifier}')
+                    if element_forge.page_title_is("Test Entities"):
+                        select_country_configuration = element_forge.get_element_by(
+                            locator_strategy="xpath", locator_value='//*[@id="SelectedConfiguration"]')
+                        country_select = element_forge.select_dropdown_option_webelement_by_text_value_index(
+                            dropdown_webelement=select_country_configuration,
+                            text=F"{Hermes.validate_country(country)}-Identity Verification")
+                        view_test_entities_button = element_forge.get_element_by(
+                            locator_strategy="xpath",
+                            locator_value='//*[@id="content-header"]/table/tbody/tr/td/form/input[3]')
+                        if country_select:
+                            view_test_entities_button.click()
+                            if element_forge.page_title_is("Test Entities"):
+                                create_new_button = element_forge.get_element_by(
+                                    locator_strategy="xpath",
+                                    locator_value="//*[normalize-space()='Create New']")
+                                if create_new_button:
+                                    create_new_button.click()
+                                    if element_forge.page_title_is("Create New Test Entity"):
+                                        entity_name_field = element_forge.get_element_by(
+                                            locator_strategy="xpath",
+                                            locator_value='//*[@id="TestEntityName"]')
+                                        if entity_name_field:
+                                            entity_name_field.send_keys(entity_name)
+                                        if entity_type == "KYC":
+                                            form_fill = await TruliooMEFormX(
+                                                    webdriver=web_driver,
+                                                    rpa_objective=F'Create New {Hermes.get_country_code(country)} '
+                                                                  F'Test Entity').fill_kyc_subaccount_test_entity_form(
+                                                entity_type=entity_type,
+                                                country_name=country,
+                                                parameters=request_parameters)
+                                            is_complete = form_fill[1]
+                                        elif entity_type == "KYB":
+                                            form_fill = await TruliooMEFormX(
+                                                webdriver=web_driver,
+                                                rpa_objective=F'Create New {Hermes.get_country_code(country)} '
+                                                              F'Test Entity').fill_kyb_subaccount_test_entity_form(
+                                                entity_type=entity_type,
+                                                country_name=country,
+                                                parameters=request_parameters)
+                                            is_complete = form_fill[1]
+        return web_driver, is_complete
 
 
 
